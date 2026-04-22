@@ -29,6 +29,17 @@ function App() {
 
   const t = translations[language];
 
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+    setIsLoggedIn(false);
+    setUserRole(null);
+    setVehicles([]);
+    setMessages([]);
+    if (socket) socket.disconnect();
+  }, [socket]);
+
   const fetchAnalytics = useCallback(async () => {
     if (!token) return;
     try {
@@ -39,7 +50,7 @@ function App() {
       const data = await res.json();
       setAnalytics(data);
     } catch (e) { console.error(e); }
-  }, [token]);
+  }, [token, handleLogout]);
 
   useEffect(() => {
     if (!token) return;
@@ -122,17 +133,6 @@ function App() {
       alert('Route Assigned Successfully!');
       setNewRoute({ vehicleId: '', destination: '' });
     } catch (e) { console.error(e); }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
-    setIsLoggedIn(false);
-    setUserRole(null);
-    setVehicles([]);
-    setMessages([]);
-    if (socket) socket.disconnect();
   };
 
   if (!isLoggedIn) {
