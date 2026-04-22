@@ -32,7 +32,7 @@ function App() {
   const fetchAnalytics = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://localhost:5000/api/analytics', {
+      const res = await fetch('/api/analytics', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.status === 401) return handleLogout();
@@ -44,7 +44,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-    const newSocket = io('http://localhost:5000', {
+    const newSocket = io(window.location.origin, {
       auth: { token }
     });
 
@@ -73,7 +73,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:5000/api/login', {
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: credentials.userId, password: credentials.password })
@@ -88,7 +88,7 @@ function App() {
         setIsLoggedIn(true);
         
         // Fetch initial data
-        const vRes = await fetch('http://localhost:5000/api/vehicles', {
+        const vRes = await fetch('/api/vehicles', {
           headers: { 'Authorization': `Bearer ${data.token}` }
         });
         const vData = await vRes.json();
@@ -109,16 +109,14 @@ function App() {
       const vehicle = vehicles.find(v => v.id === newRoute.vehicleId);
       if (!vehicle) return;
 
-      await fetch('http://localhost:5000/api/assign-route', {
-        method: 'POST',
+      await fetch(`/api/vehicles/${newRoute.vehicleId}/status`, {
+        method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          vehicleId: newRoute.vehicleId,
-          source: vehicle.currentLocation,
-          destination: { lat: 19.2183, lng: 72.9781, address: newRoute.destination }
+          status: 'active'
         })
       });
       alert('Route Assigned Successfully!');
@@ -244,13 +242,13 @@ function App() {
                 <div className="chat-footer" style={{padding: 0, border: 'none'}}>
                   <input className="chat-input" placeholder="Message manager..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyDown={async (e) => {
                     if (e.key === 'Enter' && newMessage) {
-                      await fetch('http://localhost:5000/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ vehicleId: driverVehicle.id, sender: 'Driver', message: newMessage, timestamp: new Date() }) });
+                      await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: 'MGR001' }) });
                       setNewMessage('');
                     }
                   }} />
                   <button className="login-btn" style={{width: 'auto', padding: '0 24px', margin: 0}} onClick={async () => {
                     if (newMessage) {
-                      await fetch('http://localhost:5000/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ vehicleId: driverVehicle.id, sender: 'Driver', message: newMessage, timestamp: new Date() }) });
+                      await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: 'MGR001' }) });
                       setNewMessage('');
                     }
                   }}>Send</button>
@@ -331,7 +329,7 @@ function App() {
                         <button className="role-btn" style={{padding: '6px 12px', marginRight: '8px'}} onClick={() => setSelectedDriver(v)}>Chat</button>
                         {v.isDelayed && (
                           <button className="role-btn active" style={{padding: '6px 12px', background: 'var(--success)'}} onClick={async () => {
-                            await fetch('http://localhost:5000/api/optimize-route', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ vehicleId: v.id }) });
+                            await fetch(`/api/vehicles/${v.id}/optimize`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({}) });
                           }}>Optimize</button>
                         )}
                       </td>
@@ -388,13 +386,13 @@ function App() {
           <div className="chat-footer">
             <input className="chat-input" placeholder="Message driver..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyDown={async (e) => {
               if (e.key === 'Enter' && newMessage) {
-                await fetch('http://localhost:5000/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vehicleId: selectedDriver.id, sender: 'Manager', message: newMessage, timestamp: new Date() }) });
+                await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: selectedDriver }) });
                 setNewMessage('');
               }
             }} />
             <button className="logout-btn" style={{background: 'var(--primary)', color: 'white', border: 'none'}} onClick={async () => {
               if (newMessage) {
-                await fetch('http://localhost:5000/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ vehicleId: selectedDriver.id, sender: 'Manager', message: newMessage, timestamp: new Date() }) });
+                await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: selectedDriver }) });
                 setNewMessage('');
               }
             }}>Send</button>
