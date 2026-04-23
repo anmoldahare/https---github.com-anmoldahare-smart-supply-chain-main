@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import io from 'socket.io-client';
 import './App.css';
 
 // const socket = io('http://localhost:5000'); // Moved inside component for auth
@@ -55,31 +54,58 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-    const newSocket = io(window.location.origin, {
-      auth: { token }
-    });
+    // Polling for updates instead of Socket.io to reduce reload latency
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/vehicles', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.status === 401) {
+          handleLogout();
+          return;
+        }
+        const data = await res.json();
+        setVehicles(data);
+        if (userRole === 'manager') fetchAnalytics();
 
-    newSocket.on('vehiclesUpdate', (updatedVehicles) => {
-      setVehicles(updatedVehicles);
-      if (userRole === 'manager') fetchAnalytics();
-    });
+        // Poll for messages
+        const msgRes = await fetch('/api/messages', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const msgData = await msgRes.json();
+        setMessages(msgData.map(msg => ({
+          ...msg,
+          type: (userRole === 'driver' && msg.sender === 'Manager') || (userRole === 'manager' && msg.sender === 'Driver') 
+            ? 'received' : 'sent'
+        })));
+      } catch (e) { console.error(e); }
+    }, 5000); // Poll every 5 seconds
 
-    newSocket.on('newMessage', (msg) => {
-      setMessages(prev => [...prev, { 
-        ...msg, 
-        type: (userRole === 'driver' && msg.sender === 'Manager') || (userRole === 'manager' && msg.sender === 'Driver') 
-          ? 'received' : 'sent' 
-      }]);
-    });
+    // Initial fetch
+    (async () => {
+      try {
+        const res = await fetch('/api/vehicles', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        setVehicles(data);
+        if (userRole === 'manager') fetchAnalytics();
 
-    setSocket(newSocket);
+        // Initial messages
+        const msgRes = await fetch('/api/messages', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const msgData = await msgRes.json();
+        setMessages(msgData.map(msg => ({
+          ...msg,
+          type: (userRole === 'driver' && msg.sender === 'Manager') || (userRole === 'manager' && msg.sender === 'Driver') 
+            ? 'received' : 'sent'
+        })));
+      } catch (e) { console.error(e); }
+    })();
 
-    return () => {
-      newSocket.off('vehiclesUpdate');
-      newSocket.off('newMessage');
-      newSocket.disconnect();
-    };
-  }, [token, userRole, fetchAnalytics]);
+    return () => clearInterval(pollInterval);
+  }, [token, userRole, fetchAnalytics, handleLogout]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
