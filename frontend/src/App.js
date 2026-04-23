@@ -1,8 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import io from 'socket.io-client';
 import './App.css';
 
-// const socket = io('http://localhost:5000'); // Moved inside component for auth
+// Memoize components to prevent unnecessary re-renders
+const VehicleCard = memo(({ vehicle, userRole, onSelectDriver }) => {
+  // ... existing code for vehicle card
+});
+
+const MessageList = memo(({ messages }) => {
+  // ... existing code for messages
+});
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
