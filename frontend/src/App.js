@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import io from 'socket.io-client';
 import './App.css';
 
-// const socket = io('http://localhost:5000'); // Moved inside component for auth
+const API_BASE_URL = 'http://localhost:5000';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -16,6 +17,7 @@ function App() {
   const [analytics, setAnalytics] = useState(null);
   const [language, setLanguage] = useState('en');
   const [socket, setSocket] = useState(null);
+  const [showCamera, setShowCamera] = useState(false);
   
   // Forms state
   const [newRoute, setNewRoute] = useState({ vehicleId: '', destination: '' });
@@ -42,7 +44,7 @@ function App() {
   const fetchAnalytics = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch('/api/analytics', {
+      const res = await fetch(`${API_BASE_URL}/api/analytics`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.status === 401) return handleLogout();
@@ -54,10 +56,22 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
+    const newSocket = io(API_BASE_URL, { auth: { token } });
+    setSocket(newSocket);
+    
+    newSocket.on('sosAlert', (data) => {
+      // Show browser alert for immediate attention
+      if (Notification.permission === 'granted') {
+        new Notification(`🚨 EMERGENCY SOS: ${data.driverName}`, { body: `Vehicle ${data.vehicleId} triggered SOS!` });
+      } else {
+        alert(`🚨 EMERGENCY SOS 🚨\nDriver: ${data.driverName} (Vehicle ${data.vehicleId})`);
+      }
+    });
+
     // Polling for updates instead of Socket.io to reduce reload latency
     const pollInterval = setInterval(async () => {
       try {
-        const res = await fetch('/api/vehicles', {
+        const res = await fetch(`${API_BASE_URL}/api/vehicles`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.status === 401) {
@@ -69,7 +83,7 @@ function App() {
         if (userRole === 'manager') fetchAnalytics();
 
         // Poll for messages
-        const msgRes = await fetch('/api/messages', {
+        const msgRes = await fetch(`${API_BASE_URL}/api/messages`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const msgData = await msgRes.json();
@@ -84,7 +98,7 @@ function App() {
     // Initial fetch
     (async () => {
       try {
-        const res = await fetch('/api/vehicles', {
+        const res = await fetch(`${API_BASE_URL}/api/vehicles`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
@@ -92,7 +106,7 @@ function App() {
         if (userRole === 'manager') fetchAnalytics();
 
         // Initial messages
-        const msgRes = await fetch('/api/messages', {
+        const msgRes = await fetch(`${API_BASE_URL}/api/messages`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const msgData = await msgRes.json();
@@ -104,13 +118,16 @@ function App() {
       } catch (e) { console.error(e); }
     })();
 
-    return () => clearInterval(pollInterval);
+    return () => {
+      clearInterval(pollInterval);
+      newSocket.disconnect();
+    };
   }, [token, userRole, fetchAnalytics, handleLogout]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: credentials.userId, password: credentials.password })
@@ -125,7 +142,7 @@ function App() {
         setIsLoggedIn(true);
         
         // Fetch initial data
-        const vRes = await fetch('/api/vehicles', {
+        const vRes = await fetch(`${API_BASE_URL}/api/vehicles`, {
           headers: { 'Authorization': `Bearer ${data.token}` }
         });
         const vData = await vRes.json();
@@ -146,7 +163,7 @@ function App() {
       const vehicle = vehicles.find(v => v.id === newRoute.vehicleId);
       if (!vehicle) return;
 
-      await fetch(`/api/vehicles/${newRoute.vehicleId}/status`, {
+      await fetch(`${API_BASE_URL}/api/vehicles/${newRoute.vehicleId}/status`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -245,14 +262,36 @@ function App() {
               <div className="map-container glass">
                 <iframe title="map" src={`https://maps.google.com/maps?q=${driverVehicle.currentLocation.lat},${driverVehicle.currentLocation.lng}&z=14&output=embed`} className="map-frame" allowFullScreen />
                 <div style={{position: 'absolute', bottom: '24px', left: '24px', right: '24px', display: 'flex', gap: '12px'}}>
-                  <button 
-                    className="login-btn" 
-                    style={{margin: 0, flex: 1}}
-                    onClick={() => socket.emit('startTrip', { vehicleId: driverVehicle.id })}
-                    disabled={driverVehicle.status === 'active'}
-                  >
-                    {driverVehicle.status === 'active' ? '🚀 Trip Active' : t.start}
-                  </button>
+                  {driverVehicle.status !== 'active' && driverVehicle.status !== 'EMERGENCY' ? (
+                    <button 
+                      className="login-btn" 
+                      style={{margin: 0, flex: 1}}
+                      onClick={() => socket?.emit('startTrip', { vehicleId: driverVehicle.id })}
+                    >
+                      {t.start}
+                    </button>
+                  ) : (
+                    <>
+                      <button 
+                        className="login-btn" 
+                        style={{margin: 0, flex: 1, background: 'var(--success)'}}
+                        onClick={() => setShowCamera(true)}
+                      >
+                        ✅ End Trip
+                      </button>
+                      <button 
+                        className="btn-sos" 
+                        style={{margin: 0, flex: 1}}
+                        onClick={async () => {
+                          if (window.confirm("DECLARE EMERGENCY? This will alert managers immediately.")) {
+                            await fetch(`${API_BASE_URL}/api/sos`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ vehicleId: driverVehicle.id }) });
+                          }
+                        }}
+                      >
+                        🚨 SOS
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -268,13 +307,13 @@ function App() {
                 <div className="chat-footer" style={{padding: 0, border: 'none'}}>
                   <input className="chat-input" placeholder="Message manager..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyDown={async (e) => {
                     if (e.key === 'Enter' && newMessage) {
-                      await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: 'MGR001' }) });
+                      await fetch(`${API_BASE_URL}/api/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: 'MGR001' }) });
                       setNewMessage('');
                     }
                   }} />
                   <button className="login-btn" style={{width: 'auto', padding: '0 24px', margin: 0}} onClick={async () => {
                     if (newMessage) {
-                      await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: 'MGR001' }) });
+                      await fetch(`${API_BASE_URL}/api/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: 'MGR001' }) });
                       setNewMessage('');
                     }
                   }}>Send</button>
@@ -285,6 +324,34 @@ function App() {
             <div className="glass" style={{padding: '80px', textAlign: 'center'}}>
               <h2>No active trip assigned</h2>
               <p style={{color: 'var(--text-muted)'}}>Please wait for your manager to assign your next route.</p>
+            </div>
+          )}
+
+          {showCamera && (
+            <div className="camera-overlay">
+              <h2 style={{color: 'white', marginBottom: '20px'}}>Delivery Proof Required</h2>
+              <div className="camera-viewfinder">
+                <span style={{color: 'white', position: 'absolute', bottom: '20px', zIndex: 1}}>Align package in frame</span>
+              </div>
+              <button 
+                className="btn-capture"
+                onClick={() => {
+                  socket?.emit('endTrip', { 
+                    vehicleId: driverVehicle.id, 
+                    photoUrl: `https://mock-storage.local/proof_${Date.now()}.jpg` 
+                  });
+                  setShowCamera(false);
+                }}
+              >
+                CAPTURE
+              </button>
+              <button 
+                className="logout-btn" 
+                style={{marginTop: '20px', border: 'none', background: 'transparent', color: 'white'}}
+                onClick={() => setShowCamera(false)}
+              >
+                Cancel
+              </button>
             </div>
           )}
         </div>
@@ -311,9 +378,9 @@ function App() {
             <div className="stat-trend up">↑ 12% optimized</div>
           </div>
           <div className="stat-card glass">
-            <h3>Fleet Efficiency</h3>
-            <div className="stat-number">94%</div>
-            <div className="stat-trend up">↑ 5% this month</div>
+            <h3>On-Time Rate</h3>
+            <div className="stat-number">{analytics?.onTimeRate || 'N/A'}</div>
+            <div className="stat-trend up">Target: &gt;90%</div>
           </div>
           <div className="stat-card glass">
             <h3>Active Delays</h3>
@@ -341,21 +408,21 @@ function App() {
                 </thead>
                 <tbody>
                   {vehicles.map(v => (
-                    <tr key={v.id}>
+                    <tr key={v.id} className={v.status === 'EMERGENCY' ? 'row-emergency' : ''}>
                       <td><strong>{v.id}</strong></td>
                       <td>{v.driverName}</td>
                       <td>{v.currentLocation.address}</td>
                       <td style={{color: v.isDelayed ? 'var(--danger)' : 'var(--success)'}}>{v.eta ? new Date(v.eta).toLocaleTimeString() : 'N/A'}</td>
                       <td>
-                        <span className={`badge ${v.isDelayed ? 'badge-danger' : 'badge-success'}`}>
-                          {v.isDelayed ? '⚠️ Delay' : '✅ Active'}
+                        <span className={`badge ${v.status === 'EMERGENCY' ? 'badge-danger' : (v.isDelayed ? 'badge-warning' : 'badge-success')}`}>
+                          {v.status === 'EMERGENCY' ? '🚨 EMERGENCY' : (v.isDelayed ? '⚠️ Delay' : '✅ Active')}
                         </span>
                       </td>
                       <td>
                         <button className="role-btn" style={{padding: '6px 12px', marginRight: '8px'}} onClick={() => setSelectedDriver(v)}>Chat</button>
                         {v.isDelayed && (
                           <button className="role-btn active" style={{padding: '6px 12px', background: 'var(--success)'}} onClick={async () => {
-                            await fetch(`/api/vehicles/${v.id}/optimize`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({}) });
+                            await fetch(`${API_BASE_URL}/api/vehicles/${v.id}/optimize`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({}) });
                           }}>Optimize</button>
                         )}
                       </td>
@@ -412,13 +479,13 @@ function App() {
           <div className="chat-footer">
             <input className="chat-input" placeholder="Message driver..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyDown={async (e) => {
               if (e.key === 'Enter' && newMessage) {
-                await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: selectedDriver }) });
+                await fetch(`${API_BASE_URL}/api/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: selectedDriver }) });
                 setNewMessage('');
               }
             }} />
             <button className="logout-btn" style={{background: 'var(--primary)', color: 'white', border: 'none'}} onClick={async () => {
               if (newMessage) {
-                await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: selectedDriver }) });
+                await fetch(`${API_BASE_URL}/api/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ message: newMessage, to: selectedDriver }) });
                 setNewMessage('');
               }
             }}>Send</button>

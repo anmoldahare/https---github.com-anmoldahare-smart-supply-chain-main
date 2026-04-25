@@ -22,6 +22,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
+
 app.use(express.json());
 
 // Mock Users Database (Moved from frontend)
@@ -294,13 +295,41 @@ app.get('/api/analytics', authenticateToken, (req, res) => {
   const completedDeliveries = deliveries.filter(d => d.status === 'completed').length;
   const delayedDeliveries = vehicles.filter(v => v.isDelayed && v.status === 'active').length;
   
+  // Calculate a mock on-time rate for demonstration
+  const baseRate = 85;
+  const onTimeRate = completedDeliveries > 0 ? Math.min(100, baseRate + completedDeliveries * 2) : 100;
+  
   res.json({
     totalDeliveries: deliveries.length,
     completedDeliveries,
     delayedDeliveries,
+    onTimeRate: `${onTimeRate}%`,
     activeVehicles: vehicles.filter(v => v.status === 'active').length,
     idleVehicles: vehicles.filter(v => v.status === 'idle').length
   });
+});
+
+app.post('/api/sos', authenticateToken, (req, res) => {
+  const { vehicleId } = req.body;
+  const vehicle = vehicles.find(v => v.id === vehicleId);
+  
+  if (vehicle) {
+    vehicle.status = 'EMERGENCY';
+    vehicle.isDelayed = true;
+    vehicle.delayReason = 'SOS EMERGENCY DECLARED';
+    
+    // Broadcast emergency
+    io.emit('sosAlert', {
+      vehicleId: vehicle.id,
+      driverName: vehicle.driverName,
+      location: vehicle.currentLocation,
+      timestamp: new Date()
+    });
+    
+    res.json({ success: true, message: 'SOS broadcasted successfully' });
+  } else {
+    res.status(404).json({ error: 'Vehicle not found' });
+  }
 });
 
 app.get('/api/messages/:vehicleId', authenticateToken, (req, res) => {
@@ -343,6 +372,7 @@ io.on('connection', (socket) => {
       if (delivery) {
         delivery.status = 'completed';
         delivery.completedAt = new Date();
+        delivery.photoProofUrl = data.photoUrl || null;
       }
       
       io.emit('tripEnded', { vehicleId: data.vehicleId, message: 'Trip completed successfully' });
@@ -355,6 +385,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = 5000;
-server.listen(PORT, () => {
-  console.log(`🚀 Backend server running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Backend server running on http://127.0.0.1:${PORT}`);
 });
