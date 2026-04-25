@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import io from 'socket.io-client';
 import './App.css';
 
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -56,17 +56,20 @@ function App() {
   useEffect(() => {
     if (!token) return;
 
-    const newSocket = io(API_BASE_URL, { auth: { token } });
-    setSocket(newSocket);
-    
-    newSocket.on('sosAlert', (data) => {
-      // Show browser alert for immediate attention
-      if (Notification.permission === 'granted') {
-        new Notification(`🚨 EMERGENCY SOS: ${data.driverName}`, { body: `Vehicle ${data.vehicleId} triggered SOS!` });
-      } else {
-        alert(`🚨 EMERGENCY SOS 🚨\nDriver: ${data.driverName} (Vehicle ${data.vehicleId})`);
-      }
-    });
+    let newSocket = null;
+    if (process.env.NODE_ENV !== 'production') {
+      newSocket = io(API_BASE_URL, { auth: { token } });
+      setSocket(newSocket);
+      
+      newSocket.on('sosAlert', (data) => {
+        // Show browser alert for immediate attention
+        if (Notification.permission === 'granted') {
+          new Notification(`🚨 EMERGENCY SOS: ${data.driverName}`, { body: `Vehicle ${data.vehicleId} triggered SOS!` });
+        } else {
+          alert(`🚨 EMERGENCY SOS 🚨\nDriver: ${data.driverName} (Vehicle ${data.vehicleId})`);
+        }
+      });
+    }
 
     // Polling for updates instead of Socket.io to reduce reload latency
     const pollInterval = setInterval(async () => {
@@ -120,7 +123,7 @@ function App() {
 
     return () => {
       clearInterval(pollInterval);
-      newSocket.disconnect();
+      if (newSocket) newSocket.disconnect();
     };
   }, [token, userRole, fetchAnalytics, handleLogout]);
 
